@@ -90,18 +90,6 @@ function Out-Result {
     exit $ExitCode
 }
 
-# Token lookup: -ApiToken > env:SNIPEIT_TOKEN > snipeit.token next to the script (git-ignored)
-if (-not $ApiToken) {
-    $tokenFile = Join-Path $PSScriptRoot 'snipeit.token'
-    if (Test-Path $tokenFile) { $ApiToken = (Get-Content $tokenFile -Raw).Trim() }
-}
-if (-not $ApiToken) {
-    Out-Result @{ result = 'error'; message = 'API token missing (-ApiToken, env:SNIPEIT_TOKEN or snipeit.token)' } 1
-}
-
-$base    = $SnipeUrl.TrimEnd('/') + '/api/v1'
-$headers = @{ Authorization = "Bearer $ApiToken"; Accept = 'application/json' }
-
 # Readable message for a failed HTTP call: status code + (shortened) response body
 function Get-SnipeHttpError {
     param($ErrorRecord, [string]$Method, [string]$Path)
@@ -299,6 +287,20 @@ try {
     if ($Serial -and -not $DryRun) {
         Out-Result @{ result = 'error'; message = '-Serial is only allowed together with -DryRun' } 1
     }
+
+    # Token lookup: -ApiToken > env:SNIPEIT_TOKEN > snipeit.token next to the script (git-ignored).
+    # Inside try: an unreadable or empty token file must still produce the JSON line.
+    if (-not $ApiToken) {
+        $tokenFile = Join-Path $PSScriptRoot 'snipeit.token'
+        if (Test-Path $tokenFile) { $ApiToken = "$(Get-Content $tokenFile -Raw)".Trim() }
+    }
+    if (-not $ApiToken) {
+        Out-Result @{ result = 'error'; message = 'API token missing (-ApiToken, env:SNIPEIT_TOKEN or snipeit.token)' } 1
+    }
+
+    # Used by Invoke-Snipe
+    $base    = $SnipeUrl.TrimEnd('/') + '/api/v1'
+    $headers = @{ Authorization = "Bearer $ApiToken"; Accept = 'application/json' }
 
     # ---------- 1. Hardware inventory ----------
     $bios = Get-CimInstance Win32_BIOS
