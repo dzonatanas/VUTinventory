@@ -24,7 +24,7 @@ Owner: IT / cybersecurity manager (Lithuania). Asset management evidence is used
 - Custom fields are set by DB column name (e.g. `_snipeit_cpu_1`); values are silently dropped if the model's fieldset doesn't contain the field
 - **No bulk checkout endpoint** — loop `POST /hardware/{id}/checkout`
 - Useful endpoints:
-  - `GET /hardware/byserial/{serial}`, `GET /hardware/bytag/{tag}`
+  - `GET /hardware/byserial/{serial}`, `GET /hardware/bytag/{tag}` — byserial not found = HTTP 200 `{"status":"error","messages":"<translated text>","payload":null}`; detect by shape, never by message text
   - `POST /hardware`, `PATCH /hardware/{id}`
   - `POST /hardware/{id}/checkout` — body: `checkout_to_type` (`user`|`location`|`asset`), `assigned_user` / `assigned_location` / `assigned_asset`, `note`, optional `checkout_at`, `expected_checkin`
   - `GET /reports/activity?search=&action_type=checkout&target_type=&target_id=`
