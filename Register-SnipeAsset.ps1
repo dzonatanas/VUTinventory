@@ -280,7 +280,12 @@ try {
         Sort-Object { [int]$_.DeviceId } |
         ForEach-Object {
             $media = "$($_.MediaType)"
+            # NVMe behind Intel VMD/RST reports BusType RAID -> fall back to the device name
+            # UNTESTED: no VMD/RST laptop available
+            $isRaid = "$($_.BusType)" -eq 'RAID'
             $type  = if ("$($_.BusType)" -eq 'NVMe') { 'NVMe SSD' }
+                     elseif ($isRaid -and "$($_.FriendlyName) $($_.Model)" -match 'NVMe') { 'NVMe SSD' }
+                     elseif ($isRaid -and $media -eq 'SSD') { 'SSD' }
                      elseif ("$($_.BusType)" -in 'SD', 'MMC') { 'eMMC' }
                      elseif ($media -in 'SSD', 'HDD') { "$($_.BusType) $media" }
                      else { "$($_.BusType)" }
