@@ -44,5 +44,6 @@ New assets get a `notes` entry: script version, timestamp, Windows account and h
 
 - Auto-increment asset tags ON, unique serial numbers ON
 - Model "VUT laptop" with a fieldset containing the custom fields listed in AGENTS.md
+  (checked before creating, also in `-DryRun`; missing fields → exit 1, because Snipe-IT would drop their values silently)
 - Status label "Ready to Deploy" (or pass `-StatusName` / `-StatusId`)
 - Service account with: Assets view/create, Models view, Status Labels view, Self → Create API keys

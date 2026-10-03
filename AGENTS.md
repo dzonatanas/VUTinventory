@@ -21,7 +21,7 @@ Owner: IT / cybersecurity manager (Lithuania). Asset management evidence is used
 - PS 5.1 mangles non-ASCII in request bodies → send `[Text.Encoding]::UTF8.GetBytes($json)` with `application/json; charset=utf-8`
 - Ensure TLS 1.2 without disabling others: if `[Net.ServicePointManager]::SecurityProtocol` is not `SystemDefault` (0), `-bor [Net.SecurityProtocolType]::Tls12`; leave `SystemDefault` as is (OS negotiates 1.2/1.3)
 - Default rate limit 120 req/min (`API_THROTTLE_PER_MINUTE`) — throttle/back off in loops
-- Custom fields are set by DB column name (e.g. `_snipeit_cpu_1`); values are silently dropped if the model's fieldset doesn't contain the field
+- Custom fields are set by DB column name (e.g. `_snipeit_cpu_1`); values are silently dropped if the model's fieldset doesn't contain the field → check first via `GET /models/{id}` → `default_fieldset_values[].db_column_name` (Snipe-IT 6.0.x+)
 - **No bulk checkout endpoint** — loop `POST /hardware/{id}/checkout`
 - Useful endpoints:
   - `GET /hardware/byserial/{serial}`, `GET /hardware/bytag/{tag}` — byserial not found = HTTP 200 `{"status":"error","messages":"<translated text>","payload":null}`; detect by shape, never by message text

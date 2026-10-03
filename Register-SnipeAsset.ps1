@@ -470,6 +470,25 @@ try {
         $StatusId = $statusLabel.id
     }
 
+    # ---------- 3c. Custom fields must be in the model's fieldset ----------
+    # Snipe-IT silently drops values of fields missing from the fieldset -> fail before creating.
+    # default_fieldset_values lists the fieldset's fields (Snipe-IT 6.0.x+, needs only Models view).
+    # UNTESTED: response shape taken from Snipe-IT source, not verified against the live instance
+    if (-not $model) { $model = Invoke-Snipe GET "/models/$ModelId" }
+    if (-not $model.PSObject.Properties['default_fieldset_values']) {
+        throw "Model id $ModelId response has no default_fieldset_values (Snipe-IT older than 6.0?)"
+    }
+    $fieldsetColumns = @($model.default_fieldset_values |
+        ForEach-Object { [Net.WebUtility]::HtmlDecode($_.db_column_name) })
+    $missingFields = @(@($FieldLaptopModel, $FieldCpu, $FieldRam, $FieldStorageGb, $FieldStorageType,
+            $FieldOs, $FieldBattery) | Where-Object { $_ -notin $fieldsetColumns })
+    if ($missingFields) {
+        Out-Result @{
+            result  = 'error'
+            message = "Fieldset of model id $ModelId lacks custom fields: $($missingFields -join ', ')"
+        } 1
+    }
+
     # ---------- 4. Create asset ----------
     $assetBody = @{
         model_id  = $ModelId
