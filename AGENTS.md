@@ -10,7 +10,7 @@ Owner: IT / cybersecurity manager (Lithuania). Asset management evidence is used
 ## Environment
 - Windows endpoints, **PowerShell 5.1** compatibility required (no PS7-only syntax: no `??`, no ternary, no `-Parallel`)
 - Microsoft 365 / Entra ID / Intune in use
-- Snipe-IT URL: `https://inventorius.liepu27.lt` (default of `-SnipeUrl`). IDs stay parameters; `StatusId = 2` still unverified
+- Snipe-IT URL: `https://inventorius.liepu27.lt` (default of `-SnipeUrl`). IDs stay parameters; model and status label are resolved by name (`-ModelId` / `-StatusId` skip the lookup)
 - Repo: https://github.com/Visos-Upes-Teka/VUTinventory (private)
 - Locale: Lithuanian. CSV output must use **`;` separator** and UTF-8 (with BOM for Excel). User-facing document text (shipment act) in Lithuanian.
 
@@ -44,6 +44,7 @@ Owner: IT / cybersecurity manager (Lithuania). Asset management evidence is used
   `_snipeit_laptop_model_8`, `_snipeit_cpu_2`, `_snipeit_ram_3` (`32 GB`), `_snipeit_storage_gb_4` (`512`, sum of internal disks incl. soldered eMMC; USB, removable SD/MMC and virtual disks excluded),
   `_snipeit_storage_type_5` (`NVMe SSD`, `eMMC`, or `SATA SSD 960 GB; NVMe SSD 2000 GB`), `_snipeit_operating_system_6` (`Windows 11 Pro 25H2`),
   `_snipeit_batery_health_7` (`87%` = FullChargeCapacity / DesignCapacity, NOT charge level; optional)
+- Status label resolved by name: `-StatusName` (default `Ready to Deploy`), never created
 - MAC address intentionally NOT collected (user decision)
 - Battery: root\wmi first, fallback `powercfg /batteryreport /xml` (HP lacks `BatteryStaticData`). Fallback untested on a real laptop yet
 - Rejects junk serials (`Default string`, `To be filled by O.E.M.`, …); `-Serial` override for testing (only with `-DryRun`; enforced, exit 1 otherwise)
