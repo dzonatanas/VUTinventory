@@ -41,8 +41,8 @@ Owner: IT / cybersecurity manager (Lithuania). Asset management evidence is used
 ## Task 1 — Register-SnipeAsset.ps1 (works; tested on one HP EliteBook)
 - All laptops use one fixed Snipe-IT model **"VUT laptop"** (id 2, resolved by name, never created). Real make/model goes to custom field "Laptop model"
 - Custom fields (all format ANY / free text) — DB columns:
-  `_snipeit_laptop_model_8`, `_snipeit_cpu_2`, `_snipeit_ram_3` (`32 GB`), `_snipeit_storage_gb_4` (`512`, sum of internal disks),
-  `_snipeit_storage_type_5` (`NVMe SSD`, or `SATA SSD 960 GB; NVMe SSD 2000 GB`), `_snipeit_operating_system_6` (`Windows 11 Pro 25H2`),
+  `_snipeit_laptop_model_8`, `_snipeit_cpu_2`, `_snipeit_ram_3` (`32 GB`), `_snipeit_storage_gb_4` (`512`, sum of internal disks incl. soldered eMMC; USB, removable SD/MMC and virtual disks excluded),
+  `_snipeit_storage_type_5` (`NVMe SSD`, `eMMC`, or `SATA SSD 960 GB; NVMe SSD 2000 GB`), `_snipeit_operating_system_6` (`Windows 11 Pro 25H2`),
   `_snipeit_batery_health_7` (`87%` = FullChargeCapacity / DesignCapacity, NOT charge level; optional)
 - MAC address intentionally NOT collected (user decision)
 - Battery: root\wmi first, fallback `powercfg /batteryreport /xml` (HP lacks `BatteryStaticData`). Fallback untested on a real laptop yet

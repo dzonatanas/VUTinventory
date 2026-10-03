@@ -265,13 +265,23 @@ try {
                 Measure-Object -Property Capacity -Sum).Sum / 1GB))
 
     # Internal disks only; size in decimal GB (matches vendor spec, e.g. 512)
-    $excludeBus = 'USB', 'SD', 'MMC', 'Virtual', 'File Backed Virtual', 'iSCSI'
+    $excludeBus = 'USB', 'Virtual', 'File Backed Virtual', 'iSCSI'
+    # SD/MMC bus: keep soldered eMMC (fixed media), drop card readers (removable media).
+    # Win32_DiskDrive.Index = PhysicalDisk.DeviceId
+    # UNTESTED: no eMMC laptop available
+    $fixedDiskIds = @(Get-CimInstance Win32_DiskDrive |
+        Where-Object { $_.MediaType -eq 'Fixed hard disk media' } | ForEach-Object { "$($_.Index)" })
     $disks = @(Get-PhysicalDisk |
-        Where-Object { "$($_.BusType)" -notin $excludeBus -and $_.Size -gt 0 } |
+        Where-Object {
+            $bus = "$($_.BusType)"
+            $bus -notin $excludeBus -and $_.Size -gt 0 -and
+                ($bus -notin 'SD', 'MMC' -or "$($_.DeviceId)" -in $fixedDiskIds)
+        } |
         Sort-Object { [int]$_.DeviceId } |
         ForEach-Object {
             $media = "$($_.MediaType)"
             $type  = if ("$($_.BusType)" -eq 'NVMe') { 'NVMe SSD' }
+                     elseif ("$($_.BusType)" -in 'SD', 'MMC') { 'eMMC' }
                      elseif ($media -in 'SSD', 'HDD') { "$($_.BusType) $media" }
                      else { "$($_.BusType)" }
             [pscustomobject]@{ Type = $type; Gb = [math]::Round($_.Size / 1e9) }
