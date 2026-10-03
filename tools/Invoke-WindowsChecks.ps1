@@ -7,8 +7,12 @@
     Runs Register-SnipeAsset.ps1 in child Windows PowerShell 5.1 processes and records the result
     of every check in windows-checks-result.txt next to this repo.
 
-    NEVER writes to Snipe-IT: every run uses -DryRun, or exits before any API call
-    (and then also points -SnipeUrl at 127.0.0.1:9 as a safety net).
+    Without -AllowWrites it NEVER writes to Snipe-IT: every run uses -DryRun, or exits before any
+    API call (and then also points -SnipeUrl at 127.0.0.1:9 as a safety net).
+
+    -AllowWrites (C checks, demo instance only): registers THIS machine for real with its BIOS
+    serial (-NoWallpaper), verifies the stored asset, re-runs to get "exists", then deletes the
+    created asset (soft delete) unless -KeepAsset. Skipped if the serial is already registered.
     Read-only API calls use the token from snipeit.token; the token is never printed.
 
     Side effects on this machine: lines appended to C:\ProgramData\SnipeIT\register.log,
@@ -20,7 +24,9 @@
 [CmdletBinding()]
 param(
     [string]$SnipeUrl = 'https://inventorius.liepu27.lt',
-    [switch]$SkipApi                    # only the offline checks (A*)
+    [switch]$SkipApi,                   # only the offline checks (A*)
+    [switch]$AllowWrites,               # C*: really create an asset (demo instance only!)
+    [switch]$KeepAsset                  # C*: do not delete the created test asset afterwards
 )
 
 $ErrorActionPreference = 'Stop'
@@ -248,6 +254,76 @@ else {
         Invoke-Case B4b 'custom field not in fieldset -> exit 1 listing it' `
             @('-DryRun', '-Serial', $testSerial, '-FieldCpu', '_snipeit_vutcheck_999', '-NoWallpaper') @(1) `
             { param($j) if ($j.message -notlike '*lacks custom fields: _snipeit_vutcheck_999*') { "message: $($j.message)" } } | Out-Null
+        Add-Line ''
+
+        # ---------- C: write path (real create on the demo instance) ----------
+        if (-not $AllowWrites) { Add-Line '[SKIP] C* write checks (run with -AllowWrites on the demo instance)' }
+        else {
+            Add-Line "[INFO] C  WRITE checks against $SnipeUrl"
+            $realSerial = "$((Get-CimInstance Win32_BIOS).SerialNumber)".Trim()
+            $pre = Get-Api "/hardware/byserial/$([uri]::EscapeDataString($realSerial))"
+            if (Test-JunkSerial $realSerial) {
+                Add-Line "[SKIP] C* BIOS serial '$realSerial' is a placeholder - the script cannot register this machine"
+            } elseif ($pre.total -gt 0) {
+                Add-Line "[SKIP] C* serial $realSerial already registered as $($pre.rows[0].asset_tag) - not touching an existing asset"
+            } else {
+                $logBefore = Get-AuditLineCount
+                $c1 = Invoke-Case C1 'real run: asset created, exit 0' @('-NoWallpaper') @(0) `
+                    { param($j) if ($j.result -ne 'created' -or -not $j.asset_tag -or -not ($j.id -gt 0)) { "result=$($j.result) tag=$($j.asset_tag) id=$($j.id) $($j.message)" } }
+                $createdId = 0
+                if ($c1.Json -and $c1.Json.id -gt 0) { $createdId = [int]$c1.Json.id }
+
+                if ($createdId) {
+                    try {
+                        # C2: what Snipe-IT actually stored
+                        $asset = Get-Api "/hardware/$createdId"
+                        $inv = $c1.Json
+                        $problems = @()
+                        if ([Net.WebUtility]::HtmlDecode($asset.serial) -ne $realSerial) { $problems += "serial '$($asset.serial)'" }
+                        if ([Net.WebUtility]::HtmlDecode($asset.name) -ne $env:COMPUTERNAME) { $problems += "name '$($asset.name)'" }
+                        if ([Net.WebUtility]::HtmlDecode($asset.asset_tag) -ne $inv.asset_tag) { $problems += "asset_tag '$($asset.asset_tag)'" }
+                        if ([Net.WebUtility]::HtmlDecode($asset.model.name) -ne 'VUT laptop') { $problems += "model '$($asset.model.name)'" }
+                        if ([Net.WebUtility]::HtmlDecode($asset.status_label.name) -ne 'Ready to Deploy') { $problems += "status '$($asset.status_label.name)'" }
+                        if ("$($asset.notes)" -notlike '*Registered by Register-SnipeAsset.ps1 v*') { $problems += "notes '$($asset.notes)'" }
+                        # custom field DB column -> expected value (script defaults)
+                        $expected = [ordered]@{
+                            '_snipeit_laptop_model_8'     = $inv.laptop_model
+                            '_snipeit_cpu_2'              = $inv.cpu
+                            '_snipeit_ram_3'              = $inv.ram
+                            '_snipeit_storage_gb_4'       = "$($inv.storage_gb)"
+                            '_snipeit_storage_type_5'     = $inv.storage_type
+                            '_snipeit_operating_system_6' = $inv.os
+                            '_snipeit_batery_health_7'    = $inv.battery
+                        }
+                        $stored = @{}
+                        foreach ($prop in $asset.custom_fields.PSObject.Properties) {
+                            $stored[[Net.WebUtility]::HtmlDecode($prop.Value.field)] = [Net.WebUtility]::HtmlDecode("$($prop.Value.value)")
+                        }
+                        foreach ($col in $expected.Keys) {
+                            if ("$($stored[$col])" -ne "$($expected[$col])") { $problems += "$col stored '$($stored[$col])' expected '$($expected[$col])'" }
+                        }
+                        Add-Line ("[{0}] C2 stored asset matches (serial, name, tag, model, status, notes, 7 custom fields)" -f $(if ($problems) { 'FAIL' } else { 'PASS' }))
+                        foreach ($pr in $problems) { Add-Line "       problem: $pr" }
+                        Add-Line "       notes: $($asset.notes)"
+                    } catch { Add-Line "[FAIL] C2 reading the created asset failed: $($_.Exception.Message)" }
+
+                    Invoke-Case C3 'second real run: exists, exit 2, same tag' @('-NoWallpaper') @(2) `
+                        { param($j) if ($j.asset_tag -ne $c1.Json.asset_tag) { "asset_tag $($j.asset_tag) vs created $($c1.Json.asset_tag)" } } | Out-Null
+
+                    $created = @(Get-Content $auditLog | Select-Object -Skip $logBefore | Where-Object { $_ -like '*"result":"created"*' })
+                    Add-Line ("[{0}] C4 audit log has the 'created' line" -f $(if ($created) { 'PASS' } else { 'FAIL' }))
+
+                    if ($KeepAsset) { Add-Line "[INFO] C5 test asset kept: id $createdId tag $($c1.Json.asset_tag)" }
+                    else {
+                        try {
+                            $del = Invoke-RestMethod -Method Delete -Uri "$api/hardware/$createdId" -Headers $h -TimeoutSec 30
+                            Add-Line ("[{0}] C5 cleanup: delete asset id {1}: {2}" -f
+                                $(if ($del.status -eq 'success') { 'PASS' } else { 'FAIL' }), $createdId, ($del | ConvertTo-Json -Compress))
+                        } catch { Add-Line "[FAIL] C5 cleanup failed (Assets delete permission?) - delete id $createdId manually: $($_.Exception.Message)" }
+                    }
+                }
+            }
+        }
     }
 }
 
