@@ -97,6 +97,29 @@ if (-not $ApiToken) {
 $base    = $SnipeUrl.TrimEnd('/') + '/api/v1'
 $headers = @{ Authorization = "Bearer $ApiToken"; Accept = 'application/json' }
 
+# Readable message for a failed HTTP call: status code + (shortened) response body
+function Get-SnipeHttpError {
+    param($ErrorRecord, [string]$Method, [string]$Path)
+    $resp = $ErrorRecord.Exception.Response
+    if (-not $resp) { return "Snipe-IT network error ($Method $Path): $($ErrorRecord.Exception.Message)" }
+
+    # PS 5.1 already reads the body into ErrorDetails; the stream is then at its end -> rewind as fallback
+    $respBody = "$($ErrorRecord.ErrorDetails.Message)"
+    if (-not $respBody -and $resp -is [Net.HttpWebResponse]) {
+        try {
+            $stream = $resp.GetResponseStream()
+            if ($stream.CanSeek) { $stream.Position = 0 }
+            $respBody = (New-Object IO.StreamReader $stream).ReadToEnd()
+        } catch {
+            Write-Verbose "Response body not readable: $($_.Exception.Message)"
+        }
+    }
+    # Cloudflare / proxy error pages are long HTML -> keep the JSON line short
+    $respBody = ($respBody -replace '\s+', ' ').Trim()
+    if ($respBody.Length -gt 300) { $respBody = $respBody.Substring(0, 300) + '...' }
+    "Snipe-IT HTTP $([int]$resp.StatusCode) ($Method $Path): $respBody"
+}
+
 function Invoke-Snipe {
     param(
         [ValidateSet('GET', 'POST', 'PATCH')] [string]$Method,
@@ -104,13 +127,44 @@ function Invoke-Snipe {
         $Body,
         [switch]$AllowError
     )
-    $p = @{ Method = $Method; Uri = "$base$Path"; Headers = $headers }
+    $p = @{ Method = $Method; Uri = "$base$Path"; Headers = $headers; TimeoutSec = 30 }
     if ($null -ne $Body) {
         # Send UTF-8 bytes explicitly (PS 5.1 otherwise mangles non-ASCII)
         $p.Body        = [Text.Encoding]::UTF8.GetBytes(($Body | ConvertTo-Json -Depth 5 -Compress))
         $p.ContentType = 'application/json; charset=utf-8'
     }
-    $r = Invoke-RestMethod @p
+
+    # Retry up to 3 attempts with backoff (2 s, 4 s; 429 honours Retry-After):
+    #   GET        - network error, HTTP 429, HTTP 5xx
+    #   POST/PATCH - HTTP 429 only: after a timeout/5xx the write may already have happened,
+    #                a retry could create a duplicate asset
+    # Never retried: other 4xx, status=error in a 200 body.
+    # UNTESTED: 429/5xx retry path against the live API
+    $maxAttempts = 3
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            $r = Invoke-RestMethod @p
+            break
+        } catch {
+            $ex = $_.Exception
+            if (-not ($ex -is [Net.WebException] -or $ex -is [Net.Http.HttpRequestException])) { throw }
+            $code = 0
+            if ($ex.Response) { $code = [int]$ex.Response.StatusCode }
+            $canRetry = $code -eq 429 -or ($Method -eq 'GET' -and ($code -eq 0 -or $code -ge 500))
+            if (-not $canRetry -or $attempt -ge $maxAttempts) {
+                throw (Get-SnipeHttpError -ErrorRecord $_ -Method $Method -Path $Path)
+            }
+            $delay = [int][math]::Pow(2, $attempt)
+            if ($code -eq 429) {
+                $retryAfter = ''
+                try { $retryAfter = "$($ex.Response.Headers['Retry-After'])" }   # PS 5.1 WebHeaderCollection
+                catch { Write-Verbose 'Retry-After header not readable' }
+                if ($retryAfter -match '^\d+$') { $delay = [math]::Min([int]$retryAfter, 60) }
+            }
+            Write-Verbose "Attempt $attempt failed (HTTP $code), retrying in $delay s"
+            Start-Sleep -Seconds $delay
+        }
+    }
     # Snipe-IT returns HTTP 200 on logical errors -> check body
     if (-not $AllowError -and $r.status -eq 'error') {
         throw "Snipe-IT API error ($Method $Path): $($r.messages | ConvertTo-Json -Compress)"
