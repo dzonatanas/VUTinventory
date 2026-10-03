@@ -60,7 +60,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# Add TLS 1.2 without disabling protocols that are already enabled. SystemDefault (0) lets the OS
+# choose (TLS 1.2/1.3 on Win10/11) - leave it alone: 0 -bor Tls12 would pin TLS 1.2 only.
+$tlsNow = [Net.ServicePointManager]::SecurityProtocol
+if ([int]$tlsNow -ne 0) {
+    [Net.ServicePointManager]::SecurityProtocol = $tlsNow -bor [Net.SecurityProtocolType]::Tls12
+}
 
 $ScriptVersion = '1.1.0'
 $AuditLogPath  = "$env:ProgramData\SnipeIT\register.log"

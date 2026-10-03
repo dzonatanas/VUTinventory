@@ -19,7 +19,7 @@ Owner: IT / cybersecurity manager (Lithuania). Asset management evidence is used
 - **Logical errors return HTTP 200** with `{"status":"error","messages":...}` — always check body `status`
 - Names in responses are **HTML-encoded** → `[Net.WebUtility]::HtmlDecode()` before comparing
 - PS 5.1 mangles non-ASCII in request bodies → send `[Text.Encoding]::UTF8.GetBytes($json)` with `application/json; charset=utf-8`
-- Force TLS 1.2: `[Net.ServicePointManager]::SecurityProtocol = 'Tls12'`
+- Ensure TLS 1.2 without disabling others: if `[Net.ServicePointManager]::SecurityProtocol` is not `SystemDefault` (0), `-bor [Net.SecurityProtocolType]::Tls12`; leave `SystemDefault` as is (OS negotiates 1.2/1.3)
 - Default rate limit 120 req/min (`API_THROTTLE_PER_MINUTE`) — throttle/back off in loops
 - Custom fields are set by DB column name (e.g. `_snipeit_cpu_1`); values are silently dropped if the model's fieldset doesn't contain the field
 - **No bulk checkout endpoint** — loop `POST /hardware/{id}/checkout`
