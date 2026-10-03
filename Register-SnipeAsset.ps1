@@ -19,8 +19,8 @@
       C:\ProgramData\SnipeIT\register.log (failure to log never changes the result).
 
     Output: one JSON line on stdout, e.g.
-      {"result":"created","asset_tag":"NOV-00123","id":45,...}
-      {"result":"exists","asset_tag":"NOV-00077","id":12,...}
+      {"result":"created","asset_tag":"VUT00123","id":45,...}
+      {"result":"exists","asset_tag":"VUT00077","id":12,...}
       {"result":"error","message":"..."}
 
     Exit codes: 0 = created, 2 = already registered, 1 = error.
@@ -443,14 +443,15 @@ try {
     }
     if ($existing.total -gt 0) {
         $a = $existing.rows | Select-Object -First 1
+        $existingTag = [Net.WebUtility]::HtmlDecode($a.asset_tag)   # API returns HTML-encoded strings
         Out-Result @{
             result    = 'exists'
             message   = 'Asset with this serial already registered'
-            asset_tag = $a.asset_tag
+            asset_tag = $existingTag
             id        = $a.id
             serial    = $hwSerial
             matches   = $existing.total
-            wallpaper = Update-Wallpaper -Tag $a.asset_tag -SubText "$hostname  |  S/N $hwSerial"
+            wallpaper = Update-Wallpaper -Tag $existingTag -SubText "$hostname  |  S/N $hwSerial"
         } 2
     }
 
