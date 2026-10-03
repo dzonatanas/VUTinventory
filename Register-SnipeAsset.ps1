@@ -173,6 +173,74 @@ function Find-ByName {
     $res.rows | Where-Object { [Net.WebUtility]::HtmlDecode($_.name) -eq $Name } | Select-Object -First 1
 }
 
+# ---------- Pure helpers (no I/O; covered by tests\Register-SnipeAsset.Tests.ps1) ----------
+
+# Placeholder values firmware ships instead of a real serial / SKU
+function Test-JunkSerial {
+    param([string]$Value)
+    $Value -match '^(|0+|none|default string|to be filled by o\.e\.m\.|system serial number|not specified|n/?a|chassis serial number)$'
+}
+
+# Real make/model for the "Laptop model" field, e.g. "Lenovo ThinkPad T14 Gen 3 (21CBS0AB00)"
+# Inputs: Win32_ComputerSystem Manufacturer/Model/SystemSKUNumber, Win32_ComputerSystemProduct Version
+function Get-LaptopModelString {
+    param([string]$Manufacturer, [string]$Model, [string]$Version, [string]$Sku)
+    $mfgMap = @{
+        'Dell Inc.'             = 'Dell'
+        'Hewlett-Packard'       = 'HP'
+        'HP'                    = 'HP'
+        'LENOVO'                = 'Lenovo'
+        'Microsoft Corporation' = 'Microsoft'
+        'ASUSTeK COMPUTER INC.' = 'ASUS'
+    }
+    $mfgRaw = "$Manufacturer".Trim()
+    $vendor = if ($mfgMap.ContainsKey($mfgRaw)) { $mfgMap[$mfgRaw] } else { $mfgRaw }
+
+    # NB: hw* prefix - PS variables are case-insensitive, $modelName would overwrite -ModelName
+    if ($vendor -eq 'Lenovo') {
+        # Lenovo: Model = machine type (e.g. 21CBS0AB00), Version = friendly name
+        $hwModelName   = "$Version".Trim()
+        $hwModelNumber = "$Model".Trim()
+    } else {
+        $hwModelName   = "$Model".Trim()
+        $hwModelNumber = "$Sku".Trim()
+    }
+    # HP / Dell already prefix the model with the vendor ("HP EliteBook ...") -> don't duplicate
+    $text = if ($hwModelName -like "$vendor *") { $hwModelName } else { "$vendor $hwModelName".Trim() }
+    if ($hwModelNumber -and $hwModelNumber -ne $hwModelName -and -not (Test-JunkSerial $hwModelNumber)) {
+        $text += " ($hwModelNumber)"
+    }
+    $text
+}
+
+# Internal disk? USB / virtual never; SD/MMC only as fixed media (soldered eMMC, not a card reader)
+function Test-InternalDisk {
+    param([string]$BusType, [double]$Size, [bool]$IsFixedMedia)
+    $BusType -notin 'USB', 'Virtual', 'File Backed Virtual', 'iSCSI' -and $Size -gt 0 -and
+        ($BusType -notin 'SD', 'MMC' -or $IsFixedMedia)
+}
+
+# Type label of one disk, e.g. "NVMe SSD", "SATA HDD", "eMMC"; $Name = FriendlyName + Model
+function Get-DiskTypeLabel {
+    param([string]$BusType, [string]$MediaType, [string]$Name)
+    # NVMe behind Intel VMD/RST reports BusType RAID -> fall back to the device name
+    # UNTESTED: no VMD/RST laptop available
+    $isRaid = $BusType -eq 'RAID'
+    if ($BusType -eq 'NVMe') { 'NVMe SSD' }
+    elseif ($isRaid -and $Name -match 'NVMe') { 'NVMe SSD' }
+    elseif ($isRaid -and $MediaType -eq 'SSD') { 'SSD' }
+    elseif ($BusType -in 'SD', 'MMC') { 'eMMC' }
+    elseif ($MediaType -in 'SSD', 'HDD') { "$BusType $MediaType" }
+    else { $BusType }
+}
+
+# One disk: "NVMe SSD"; several: "NVMe SSD 512 GB; SATA HDD 1000 GB" ($Disks: objects with Type, Gb)
+function Format-StorageType {
+    param([object[]]$Disks)
+    if ($Disks.Count -eq 1) { $Disks[0].Type }
+    else { ($Disks | ForEach-Object { '{0} {1} GB' -f $_.Type, $_.Gb }) -join '; ' }
+}
+
 function New-TagWallpaper {
     param([string]$Tag, [string]$SubText, [string]$BasePath, [string]$OutPath)
     Add-Type -AssemblyName System.Drawing
@@ -309,37 +377,12 @@ try {
 
     # NB: $hwSerial, not $serial - PS variables are case-insensitive, $serial IS the -Serial parameter
     $hwSerial = if ($Serial) { $Serial.Trim() } else { "$($bios.SerialNumber)".Trim() }
-    $badSerial = '^(|0+|none|default string|to be filled by o\.e\.m\.|system serial number|not specified|n/?a|chassis serial number)$'
-    if ($hwSerial -match $badSerial) {
+    if (Test-JunkSerial $hwSerial) {
         Out-Result @{ result = 'error'; message = "Invalid BIOS serial: '$hwSerial'" } 1
     }
 
-    $mfgMap = @{
-        'Dell Inc.'             = 'Dell'
-        'Hewlett-Packard'       = 'HP'
-        'HP'                    = 'HP'
-        'LENOVO'                = 'Lenovo'
-        'Microsoft Corporation' = 'Microsoft'
-        'ASUSTeK COMPUTER INC.' = 'ASUS'
-    }
-    $mfgRaw       = "$($cs.Manufacturer)".Trim()
-    $manufacturer = if ($mfgMap.ContainsKey($mfgRaw)) { $mfgMap[$mfgRaw] } else { $mfgRaw }
-
-    # NB: hw* prefix - PS variables are case-insensitive, $modelName would overwrite -ModelName
-    if ($manufacturer -eq 'Lenovo') {
-        # Lenovo: Model = machine type (e.g. 21CBS0AB00), Version = friendly name
-        $hwModelName   = "$($csp.Version)".Trim()
-        $hwModelNumber = "$($cs.Model)".Trim()
-    } else {
-        $hwModelName   = "$($cs.Model)".Trim()
-        $hwModelNumber = "$($cs.SystemSKUNumber)".Trim()
-    }
-    # e.g. "Lenovo ThinkPad T14 Gen 3 (21CBS0AB00)"
-    # HP / Dell already prefix the model with the vendor ("HP EliteBook ...") -> don't duplicate
-    $laptopModel = if ($hwModelName -like "$manufacturer *") { $hwModelName } else { "$manufacturer $hwModelName".Trim() }
-    if ($hwModelNumber -and $hwModelNumber -ne $hwModelName -and $hwModelNumber -notmatch $badSerial) {
-        $laptopModel += " ($hwModelNumber)"
-    }
+    $laptopModel = Get-LaptopModelString -Manufacturer $cs.Manufacturer -Model $cs.Model `
+        -Version $csp.Version -Sku $cs.SystemSKUNumber
 
     $cpu = ((Get-CimInstance Win32_Processor | Select-Object -First 1).Name -replace '\s+', ' ').Trim()
 
@@ -347,7 +390,6 @@ try {
                 Measure-Object -Property Capacity -Sum).Sum / 1GB))
 
     # Internal disks only; size in decimal GB (matches vendor spec, e.g. 512)
-    $excludeBus = 'USB', 'Virtual', 'File Backed Virtual', 'iSCSI'
     # SD/MMC bus: keep soldered eMMC (fixed media), drop card readers (removable media).
     # Win32_DiskDrive.Index = PhysicalDisk.DeviceId
     # UNTESTED: no eMMC laptop available
@@ -355,28 +397,18 @@ try {
         Where-Object { $_.MediaType -eq 'Fixed hard disk media' } | ForEach-Object { "$($_.Index)" })
     $disks = @(Get-PhysicalDisk |
         Where-Object {
-            $bus = "$($_.BusType)"
-            $bus -notin $excludeBus -and $_.Size -gt 0 -and
-                ($bus -notin 'SD', 'MMC' -or "$($_.DeviceId)" -in $fixedDiskIds)
+            Test-InternalDisk -BusType "$($_.BusType)" -Size $_.Size -IsFixedMedia ("$($_.DeviceId)" -in $fixedDiskIds)
         } |
         Sort-Object { [int]$_.DeviceId } |
         ForEach-Object {
-            $media = "$($_.MediaType)"
-            # NVMe behind Intel VMD/RST reports BusType RAID -> fall back to the device name
-            # UNTESTED: no VMD/RST laptop available
-            $isRaid = "$($_.BusType)" -eq 'RAID'
-            $type  = if ("$($_.BusType)" -eq 'NVMe') { 'NVMe SSD' }
-                     elseif ($isRaid -and "$($_.FriendlyName) $($_.Model)" -match 'NVMe') { 'NVMe SSD' }
-                     elseif ($isRaid -and $media -eq 'SSD') { 'SSD' }
-                     elseif ("$($_.BusType)" -in 'SD', 'MMC') { 'eMMC' }
-                     elseif ($media -in 'SSD', 'HDD') { "$($_.BusType) $media" }
-                     else { "$($_.BusType)" }
-            [pscustomobject]@{ Type = $type; Gb = [math]::Round($_.Size / 1e9) }
+            [pscustomobject]@{
+                Type = Get-DiskTypeLabel -BusType "$($_.BusType)" -MediaType "$($_.MediaType)" `
+                           -Name "$($_.FriendlyName) $($_.Model)"
+                Gb   = [math]::Round($_.Size / 1e9)
+            }
         })
     $storageGb   = ($disks | Measure-Object -Property Gb -Sum).Sum
-    # One disk: "NVMe SSD"; several: "NVMe SSD 512 GB; SATA HDD 1000 GB"
-    $storageType = if ($disks.Count -eq 1) { $disks[0].Type }
-                   else { ($disks | ForEach-Object { '{0} {1} GB' -f $_.Type, $_.Gb }) -join '; ' }
+    $storageType = Format-StorageType -Disks $disks
 
     $os = Get-CimInstance Win32_OperatingSystem
     $osVersion = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue).DisplayVersion

@@ -36,6 +36,7 @@ Owner: IT / cybersecurity manager (Lithuania). Asset management evidence is used
 - `$ErrorActionPreference = 'Stop'`, single top-level try/catch
 - Machine-readable output: **one JSON line on stdout** + exit codes (`0` success, `1` error, `2` business "already exists"/rejected)
 - `-DryRun` switch: collect + validate + read-only API calls, no writes
+- Pure logic lives in small side-effect-free functions (`Test-JunkSerial`, `Get-LaptopModelString`, `Test-InternalDisk`, `Get-DiskTypeLabel`, `Format-StorageType`) tested by Pester 5 in `tests/` (functions loaded via the AST, the script body never runs). CI (`.github/workflows/ci.yml`, `windows-latest`, Windows PowerShell 5.1): PSScriptAnalyzer (fails on Error) + Pester
 - Helper `Invoke-Snipe -Method -Path -Body [-AllowError]` that throws on `status=error`; 30 s timeout; retries (3 attempts, backoff, honours `Retry-After`) GET on network error/429/5xx but POST/PATCH **only on 429** (a retried write after timeout/5xx could duplicate); errors include HTTP status + response body (max 300 chars)
 
 ## Task 1 — Register-SnipeAsset.ps1 (works; tested on one HP EliteBook)
@@ -53,7 +54,7 @@ Owner: IT / cybersecurity manager (Lithuania). Asset management evidence is used
 - Creates asset without `asset_tag` (auto-increment ON, prefix `VUT`, e.g. `VUT00002`); hostname = asset name
 - Stamps asset tag + hostname + S/N onto desktop wallpaper (`C:\ProgramData\SnipeIT\wallpaper.png`): admin → HKLM PersonalizationCSP (all users, locks wallpaper; UNVERIFIED on Windows Pro), non-SYSTEM → SystemParametersInfo for current user. Wallpaper failure never fails registration. `-NoWallpaper` to skip; `-DryRun` renders preview to %TEMP%
 - Run: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Register-SnipeAsset.ps1 [-DryRun]` (execution policy is Restricted on endpoints)
-- Possible follow-ups: `-Update` mode (PATCH custom fields of existing asset); Pester tests; code signing (AllSigned)
+- Possible follow-ups: `-Update` mode (PATCH custom fields of existing asset); code signing (AllSigned)
 
 ## Task 2 — Bulk checkout / shipment script (TODO)
 Agreed design:

@@ -47,3 +47,13 @@ New assets get a `notes` entry: script version, timestamp, Windows account and h
   (checked before creating, also in `-DryRun`; missing fields → exit 1, because Snipe-IT would drop their values silently)
 - Status label "Ready to Deploy" (or pass `-StatusName` / `-StatusId`)
 - Service account with: Assets view/create, Models view, Status Labels view, Self → Create API keys
+
+## Development
+
+```powershell
+Invoke-ScriptAnalyzer -Path . -Recurse   # PSScriptAnalyzer
+Invoke-Pester .\tests                    # Pester 5; pure logic only, no hardware or API access
+```
+
+CI (`.github/workflows/ci.yml`) runs both on `windows-latest` under Windows PowerShell 5.1;
+it fails on analyzer findings of severity Error and on any failing test.

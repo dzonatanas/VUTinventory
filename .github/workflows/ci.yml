@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        # Windows PowerShell 5.1 - the version the endpoints run
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install PSScriptAnalyzer and Pester 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-PackageProvider NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
+          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -SkipPublisherCheck
+
+      - name: PSScriptAnalyzer (fails on Error severity)
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse
+          $results | Format-Table Severity, RuleName, ScriptName, Line, Message -AutoSize -Wrap |
+              Out-String -Width 250 | Write-Host
+          if ($results | Where-Object Severity -eq 'Error') { exit 1 }
+
+      - name: Pester
+        run: |
+          Import-Module Pester -RequiredVersion 5.7.1
+          $config = New-PesterConfiguration
+          $config.Run.Path = 'tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
