@@ -49,10 +49,11 @@ Owner: IT / cybersecurity manager (Lithuania). Asset management evidence is used
 - Battery: root\wmi first, fallback `powercfg /batteryreport /xml` (HP lacks `BatteryStaticData`). Fallback untested on a real laptop yet
 - Rejects junk serials (`Default string`, `To be filled by O.E.M.`, …); `-Serial` override for testing (only with `-DryRun`; enforced, exit 1 otherwise)
 - Duplicate check by serial → if exists: exit 2 + existing `asset_tag`
+- Audit trail (A.5.9): `notes` on create = `Registered by Register-SnipeAsset.ps1 v<ScriptVersion> on <ISO time> by <DOMAIN\user> from <hostname>`; every JSON result line appended to `C:\ProgramData\SnipeIT\register.log` (tab-separated: time, version, account, json). Logging failure never changes stdout/exit code; the token is never logged
 - Creates asset without `asset_tag` (auto-increment ON, prefix `VUT`, e.g. `VUT00002`); hostname = asset name
 - Stamps asset tag + hostname + S/N onto desktop wallpaper (`C:\ProgramData\SnipeIT\wallpaper.png`): admin → HKLM PersonalizationCSP (all users, locks wallpaper; UNVERIFIED on Windows Pro), non-SYSTEM → SystemParametersInfo for current user. Wallpaper failure never fails registration. `-NoWallpaper` to skip; `-DryRun` renders preview to %TEMP%
 - Run: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Register-SnipeAsset.ps1 [-DryRun]` (execution policy is Restricted on endpoints)
-- Possible follow-ups: `-Update` mode (PATCH custom fields of existing asset); Pester tests; retry/backoff; logging; code signing (AllSigned)
+- Possible follow-ups: `-Update` mode (PATCH custom fields of existing asset); Pester tests; retry/backoff; code signing (AllSigned)
 
 ## Task 2 — Bulk checkout / shipment script (TODO)
 Agreed design:

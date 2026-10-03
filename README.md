@@ -26,6 +26,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Register-SnipeAsset.ps
 
 Output is one JSON line. Exit codes: `0` created, `2` already registered (serial exists), `1` error.
 
+Audit trail: every result line (including `-DryRun` and errors) is appended to
+`C:\ProgramData\SnipeIT\register.log` as `timestamp<TAB>version<TAB>DOMAIN\user<TAB>json`.
+New assets get a `notes` entry: script version, timestamp, Windows account and hostname.
+
 | Switch / parameter | Purpose |
 |---|---|
 | `-DryRun` | No writes to Snipe-IT, wallpaper only previewed |

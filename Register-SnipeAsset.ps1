@@ -14,6 +14,9 @@
         user   -> current user via SystemParametersInfo
       Wallpaper failure never fails registration; see "wallpaper" in the JSON output.
       -DryRun only renders a preview image to %TEMP%.
+    - Audit trail: the asset "notes" record script version, time, Windows account and hostname;
+      every JSON result line (incl. -DryRun and errors) is appended to
+      C:\ProgramData\SnipeIT\register.log (failure to log never changes the result).
 
     Output: one JSON line on stdout, e.g.
       {"result":"created","asset_tag":"NOV-00123","id":45,...}
@@ -59,9 +62,26 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+$ScriptVersion = '1.1.0'
+$AuditLogPath  = "$env:ProgramData\SnipeIT\register.log"
+$RunAs         = "$env:USERDOMAIN\$env:USERNAME"
+try { $RunAs = [Security.Principal.WindowsIdentity]::GetCurrent().Name }   # e.g. NT AUTHORITY\SYSTEM under Intune
+catch { Write-Verbose 'WindowsIdentity unavailable, using USERDOMAIN\USERNAME' }
+
 function Out-Result {
     param([hashtable]$Data, [int]$ExitCode)
-    $Data | ConvertTo-Json -Compress | Write-Output
+    $json = $Data | ConvertTo-Json -Compress
+    # Audit trail (ISO 27001 A.5.9): append every result line. Must never change stdout or the exit code.
+    # Only $json is logged - it never contains the API token.
+    try {
+        $logDir = Split-Path $AuditLogPath
+        if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+        $line = "{0}`tv{1}`t{2}`t{3}" -f (Get-Date).ToString('yyyy-MM-ddTHH:mm:sszzz'), $ScriptVersion, $RunAs, $json
+        Add-Content -Path $AuditLogPath -Value $line -Encoding UTF8
+    } catch {
+        Write-Verbose "Audit log not written: $($_.Exception.Message)"
+    }
+    Write-Output $json
     exit $ExitCode
 }
 
@@ -405,6 +425,8 @@ try {
     $assetBody[$FieldStorageType] = $storageType
     $assetBody[$FieldOs]          = $osName
     if ($battery) { $assetBody[$FieldBattery] = $battery }
+    $assetBody.notes = 'Registered by Register-SnipeAsset.ps1 v{0} on {1} by {2} from {3}' -f
+        $ScriptVersion, (Get-Date).ToString('yyyy-MM-ddTHH:mm:sszzz'), $RunAs, $hostname
 
     if ($DryRun) {
         Out-Result @{
